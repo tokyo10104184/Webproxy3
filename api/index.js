@@ -101,6 +101,16 @@ app.get('/api', async (req, res) => {
                 return `url(${quote}${rewriteUrl(url)}${quote})`;
             });
             res.send(rewrittenBody);
+        } else if (contentType && (contentType.includes('javascript') || contentType.includes('application/x-javascript'))) {
+            let body = '';
+            for await (const chunk of response.data) {
+                body += chunk.toString();
+            }
+            // This regex finds string literals and checks if they look like URLs.
+            const rewrittenBody = body.replace(/(['"`])((?:https?:)?\/\/[^\s'"`]+|(?:\/|\.\.?\/)[^\s'"`]+)\1/g, (match, quote, url) => {
+                return `${quote}${rewriteUrl(url)}${quote}`;
+            });
+            res.send(rewrittenBody);
         } else {
             // For other content types, stream directly
             response.data.pipe(res);
