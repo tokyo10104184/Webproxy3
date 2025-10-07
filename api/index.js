@@ -2,6 +2,9 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { URL } = require('url');
+const esprima = require('esprima');
+const estraverse = require('estraverse');
+const escodegen = require('escodegen');
 
 const app = express();
 
@@ -106,11 +109,28 @@ app.get('/api', async (req, res) => {
             for await (const chunk of response.data) {
                 body += chunk.toString();
             }
-            // This regex finds string literals and checks if they look like URLs.
-            const rewrittenBody = body.replace(/(['"`])((?:https?:)?\/\/[^\s'"`]+|(?:\/|\.\.?\/)[^\s'"`]+)\1/g, (match, quote, url) => {
-                return `${quote}${rewriteUrl(url)}${quote}`;
-            });
-            res.send(rewrittenBody);
+            try {
+                const ast = esprima.parseScript(body);
+                estraverse.traverse(ast, {
+                    enter: function (node) {
+                        if (node.type === 'Literal' && typeof node.value === 'string') {
+                            // Simple check for something that looks like a path or URL
+                            if (node.value.includes('/') || node.value.startsWith('http')) {
+                                 // Avoid rewriting things that are clearly not URLs, like "image/jpeg"
+                                if (!node.value.includes(' ') && node.value.length > 3) {
+                                   node.value = rewriteUrl(node.value);
+                                }
+                            }
+                        }
+                    }
+                });
+                const rewrittenBody = escodegen.generate(ast);
+                res.send(rewrittenBody);
+            } catch (e) {
+                // If parsing or rewriting fails, send the original code
+                console.error("JavaScript AST processing error:", e.message);
+                res.send(body);
+            }
         } else {
             // For other content types, stream directly
             response.data.pipe(res);
